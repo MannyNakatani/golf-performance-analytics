@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+body {
+  background: #f4f3eb;
+  color: #193729;
+}
+
+.course-lines {
+  background:
+    linear-gradient(90deg, #153829 20%, transparent 85%),
+    repeating-radial-gradient(
+      ellipse 42% 60% at 88% 74%,
+      transparent 0 17px,
+      #b4ce9f44 18px 19px,
+      transparent 20px 32px
+    );
+}

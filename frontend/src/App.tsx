@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { getHealth, type HealthResponse } from './services/api'
+import { getHealth, type HealthResponse } from './api'
 
 type Connection =
   | { state: 'loading' }

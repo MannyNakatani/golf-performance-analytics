@@ -1,6 +1,6 @@
 # AI Golf Performance Intelligence Platform
 
-This portfolio project is the foundation for a platform that helps golfers understand their on-course performance. The current slice is a responsive landing page that checks a versioned health endpoint and reports the connection state.
+This portfolio project is the foundation for a platform that helps golfers understand their on-course performance. It includes a responsive landing page that reports API connectivity and a stateless API for summarizing golf scores.
 
 ## Stack
 
@@ -8,7 +8,14 @@ This portfolio project is the foundation for a platform that helps golfers under
 - **Backend** — Python, FastAPI, Uvicorn, Pydantic, and Pydantic Settings
 - **Testing and version control** — Pytest, HTTPX, and Git
 
-The monorepo keeps the frontend and backend in separate directories. The backend groups configuration under `app/core` and versioned routes under `app/api/v1` as the starting point for a modular monolith.
+## Project layout
+
+- `backend/main.py` starts FastAPI, configures CORS, and defines both API routes.
+- `backend/schemas.py` defines what the API accepts and returns.
+- `backend/analytics.py` calculates the score summary.
+- `backend/tests/` checks calculations and API behavior.
+- `frontend/src/App.tsx` renders the landing page and connection status.
+- `frontend/src/api.ts` sends and checks the request to the health endpoint.
 
 ## Prerequisites
 
@@ -44,7 +51,7 @@ From the repository root, open two PowerShell terminals.
 
 ```powershell
 Set-Location backend
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 **Terminal 2 — web app**
@@ -66,6 +73,34 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/health | ConvertTo-Json -Compress
 
 The API responds with HTTP 200 and `{"status":"healthy","service":"golf-performance-api"}`.
 
+## Score summary API
+
+`POST /api/v1/analytics/score-summary` accepts a JSON object with a required
+`scores` array containing 1 to 100 positive integers. Invalid requests return
+HTTP 422. The API processes scores in memory and rounds the average to two
+decimal places, with exact halfway values rounded to the even hundredth.
+
+With the API running, send the sample request from PowerShell:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://127.0.0.1:8000/api/v1/analytics/score-summary `
+  -ContentType 'application/json' `
+  -Body '{"scores":[72,75,68,73,70]}'
+```
+
+The API returns HTTP 200 with this JSON body.
+
+```json
+{
+  "round_count": 5,
+  "scoring_average": 71.6,
+  "best_score": 68,
+  "worst_score": 75,
+  "score_range": 7
+}
+```
+
 ## Tests and build
 
 Run from the repository root:
@@ -79,4 +114,4 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-Pytest checks the health route's status and exact JSON body. The frontend build runs TypeScript checks and writes production assets to `frontend/dist/`.
+Pytest covers health, score calculations, request validation, and the score summary OpenAPI contract. The frontend build runs TypeScript checks and writes production assets to `frontend/dist/`.

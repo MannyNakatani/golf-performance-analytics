@@ -2,7 +2,7 @@ import asyncio
 
 from httpx import ASGITransport, AsyncClient, Response
 
-from app.main import app
+from main import app
 
 
 def test_health_returns_expected_response() -> None:

@@ -1,29 +1,10 @@
 from pathlib import Path
-from typing import Annotated
-from urllib.parse import urlsplit
-
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import AfterValidator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from analytics import summarize_scores
-from schemas import HealthResponse, ScoreSummaryRequest, ScoreSummaryResponse
-
-
-def validate_origin(value: str) -> str:
-    origin = urlsplit(value)
-    if (
-        origin.scheme not in {"http", "https"}
-        or not origin.hostname
-        or "*" in value
-        or value != f"{origin.scheme}://{origin.netloc}"
-        or origin.username is not None
-        or any(char.isspace() for char in value)
-    ):
-        raise ValueError("Use an explicit HTTP(S) origin, such as http://localhost:5173")
-    return value
-
+from schemas import HealthResponse, RoundCreate, RoundResponse, ScoreSummaryRequest, ScoreSummaryResponse
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -32,7 +13,8 @@ class Settings(BaseSettings):
         validate_default=True,
     )
 
-    cors_origins: list[Annotated[str, AfterValidator(validate_origin)]] = [
+    # default CORS origins
+    cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
@@ -40,17 +22,49 @@ class Settings(BaseSettings):
 
 settings = Settings()
 app = FastAPI(title="Golf Performance API", version="0.1.0")
+rounds: dict[int, RoundResponse] = {}
+next_round_id = 1
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
 )
 
-
-@app.get("/api/v1/health", response_model=HealthResponse, tags=["health"])
-async def get_health() -> HealthResponse:
+@app.get("/api/v1/health", response_model=HealthResponse, tags=["system"])
+def get_health() -> HealthResponse:
     return HealthResponse(status="healthy", service="golf-performance-api")
 
+@app.post("/api/v1/rounds", response_model=RoundResponse,tags=["rounds"], status_code=201)
+def create_round(new_round: RoundCreate) -> RoundResponse:
+    global next_round_id
+    created_round = RoundResponse(id=next_round_id, **new_round.model_dump())
+    rounds[next_round_id] = created_round
+    next_round_id += 1
+    return created_round
+
+@app.get("/api/v1/rounds", response_model=list[RoundResponse], tags=["rounds"])
+def get_rounds() -> list[RoundResponse]:
+    return list(rounds.values())
+
+@app.get("/api/v1/rounds/{round_id}", response_model=RoundResponse,  tags=["rounds"])
+def get_round(round_id: int) -> RoundResponse:
+    if round_id not in rounds:
+        raise HTTPException(status_code=404, detail="Round not found")
+    return rounds[round_id]
+
+@app.put("/api/v1/rounds/{round_id}", response_model=RoundResponse, tags=["rounds"])
+def update_round(round_id: int, updated_round: RoundCreate) -> RoundResponse:
+    if round_id not in rounds:
+        raise HTTPException(status_code=404, detail="Round not found")
+    rounds[round_id] = RoundResponse(id=round_id, **updated_round.model_dump())
+    return rounds[round_id]
+
+@app.delete("/api/v1/rounds/{round_id}", tags=["rounds"], status_code=204)
+def delete_round(round_id: int) -> Response:
+    if round_id not in rounds:
+        raise HTTPException(status_code=404, detail="Round not found")
+    del rounds[round_id]
+    return Response(status_code=204)
 
 @app.post(
     "/api/v1/analytics/score-summary",
@@ -70,6 +84,6 @@ async def get_score_summary(request: ScoreSummaryRequest) -> Response:
     other_fields = summary.model_dump_json(exclude={"scoring_average"})
     average = format(summary.scoring_average, "f").rstrip("0").rstrip(".")
     return Response(
-        content=f'{other_fields[:-1]},"scoring_average":{average}}}',
+        content=f'{other_fields[:-1]},"scoring_average":{average}',
         media_type="application/json",
     )

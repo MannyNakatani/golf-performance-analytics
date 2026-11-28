@@ -16,4 +16,5 @@ pytest-cache-files-*/
 *.tsbuildinfo
 .coverage
 coverage/
+golf.db
 

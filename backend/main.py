@@ -3,8 +3,11 @@ from fastapi import FastAPI, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from analytics import summarize_scores
-from schemas import HealthResponse, RoundCreate, RoundResponse, ScoreSummaryRequest, ScoreSummaryResponse
+#from analytics import summarize_scores
+#from schemas import ScoreSummaryRequest, ScoreSummaryResponse
+from schemas import HealthResponse, RoundCreate, RoundResponse
+import database
+from contextlib import asynccontextmanager
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -19,11 +22,14 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
-
 settings = Settings()
-app = FastAPI(title="Golf Performance API", version="0.1.0")
-rounds: dict[int, RoundResponse] = {}
-next_round_id = 1
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    database.init_db()
+    yield
+
+app = FastAPI(title="Golf Performance API", version="0.1.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -36,54 +42,51 @@ def get_health() -> HealthResponse:
 
 @app.post("/api/v1/rounds", response_model=RoundResponse,tags=["rounds"], status_code=201)
 def create_round(new_round: RoundCreate) -> RoundResponse:
-    global next_round_id
-    created_round = RoundResponse(id=next_round_id, **new_round.model_dump())
-    rounds[next_round_id] = created_round
-    next_round_id += 1
-    return created_round
+    return database.create_round(new_round)
 
 @app.get("/api/v1/rounds", response_model=list[RoundResponse], tags=["rounds"])
 def get_rounds() -> list[RoundResponse]:
-    return list(rounds.values())
+    return database.get_rounds()
 
 @app.get("/api/v1/rounds/{round_id}", response_model=RoundResponse,  tags=["rounds"])
 def get_round(round_id: int) -> RoundResponse:
-    if round_id not in rounds:
+    retrieved_round = database.get_round(round_id)
+    if retrieved_round is None:
         raise HTTPException(status_code=404, detail="Round not found")
-    return rounds[round_id]
+    return retrieved_round
 
 @app.put("/api/v1/rounds/{round_id}", response_model=RoundResponse, tags=["rounds"])
 def update_round(round_id: int, updated_round: RoundCreate) -> RoundResponse:
-    if round_id not in rounds:
+    new_round = database.update_round(round_id, updated_round)
+    if new_round is None:
         raise HTTPException(status_code=404, detail="Round not found")
-    rounds[round_id] = RoundResponse(id=round_id, **updated_round.model_dump())
-    return rounds[round_id]
+    return new_round
 
 @app.delete("/api/v1/rounds/{round_id}", tags=["rounds"], status_code=204)
 def delete_round(round_id: int) -> Response:
-    if round_id not in rounds:
+    deleted = database.delete_round(round_id)
+    if deleted is False:
         raise HTTPException(status_code=404, detail="Round not found")
-    del rounds[round_id]
     return Response(status_code=204)
 
-@app.post(
-    "/api/v1/analytics/score-summary",
-    response_model=ScoreSummaryResponse,
-    tags=["analytics"],
-    summary="Summarize golf scores",
-    description=(
-        "Calculate the round count, scoring average rounded to two decimal places "
-        "using ties-to-even rounding, best score, worst score, and score range "
-        "for 1 to 100 positive integer scores. Scores are processed in memory."
-    ),
-)
-async def get_score_summary(request: ScoreSummaryRequest) -> Response:
-    summary = summarize_scores(request.scores)
-    # Pydantic encodes Decimal as a string. Write the average as a JSON number
-    # directly to preserve its precision without converting to float.
-    other_fields = summary.model_dump_json(exclude={"scoring_average"})
-    average = format(summary.scoring_average, "f").rstrip("0").rstrip(".")
-    return Response(
-        content=f'{other_fields[:-1]},"scoring_average":{average}',
-        media_type="application/json",
-    )
+# @app.post(
+#     "/api/v1/analytics/score-summary",
+#     response_model=ScoreSummaryResponse,
+#     tags=["analytics"],
+#     summary="Summarize golf scores",
+#     description=(
+#         "Calculate the round count, scoring average rounded to two decimal places "
+#         "using ties-to-even rounding, best score, worst score, and score range "
+#         "for 1 to 100 positive integer scores. Scores are processed in memory."
+#     ),
+# )
+# async def get_score_summary(request: ScoreSummaryRequest) -> Response:
+#     summary = summarize_scores(request.scores)
+#     # Pydantic encodes Decimal as a string. Write the average as a JSON number
+#     # directly to preserve its precision without converting to float.
+#     other_fields = summary.model_dump_json(exclude={"scoring_average"})
+#     average = format(summary.scoring_average, "f").rstrip("0").rstrip(".")
+#     return Response(
+#         content=f'{other_fields[:-1]},"scoring_average":{average}',
+#         media_type="application/json",
+#     )
